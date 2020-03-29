@@ -18,7 +18,7 @@ public class MainTest {
         Main.POPULATION_SIZE = 50;
         Main.OUTPUT_FILE = "test.out";
 
-        //Main.main(null);
+        Main.main(null);
 
     }
 
