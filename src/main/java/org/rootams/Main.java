@@ -17,7 +17,6 @@ import java.util.*;
 
 
 public class Main {
-
     static int RUN_ID;
     static int SEED;
     static int MAX_CHANGES;
@@ -27,10 +26,10 @@ public class Main {
     static int ALGORITHM_ID;
     static int POPULATION_SIZE;
     static String OUTPUT_FILE;
-
     static double[] INITIAL_RECORD;
 
     public static void main(String[] args) {
+      /*
         if (args == null || args.length == 0) {
             System.out.println("Arguments required...");
             System.exit(0);
@@ -46,21 +45,23 @@ public class Main {
             FUTURE_HORIZON = Integer.parseInt(args[5]);
             ALGORITHM_ID = Integer.parseInt(args[6]);
             POPULATION_SIZE = Integer.parseInt(args[7]);
-            OUTPUT_FILE = args[8];
+           OUTPUT_FILE = args[8];
+  */
+        printHeadOfOutputFile();
 
-            printHeadOfOutputFile();
-
-            if (ALGORITHM_ID == 1) {
-                runPSOPerfectEvaluation();
-            } else if (ALGORITHM_ID == 2) {
-                runJinApproach();
-            } else if (ALGORITHM_ID == 3) {
-                runGlobalAMForEachEnvironment();
-            }
-
-        } catch (IllegalArgumentException exception) {
-
+        if (ALGORITHM_ID == 1) {
+            runPSOPerfectEvaluation();
+        } else if (ALGORITHM_ID == 2) {
+            runJinApproach();
+        } else if (ALGORITHM_ID == 3) {
+            runGlobalAMForEachEnvironment();
+        } else if (ALGORITHM_ID == 4) {
+            runRandonAMForEachEnvironment();
         }
+
+        //  } catch (IllegalArgumentException exception) {
+
+        // }
     }
 
     interface RobustnessEvaluator {
@@ -245,6 +246,63 @@ public class Main {
             reinitializeSwarm(swarm, problem, amEvaluator, rand);
             printPerformance(RUN_ID, currentChange, 1, problem.trueEval(swarm.gx));
             amEvaluator.saveEnvironmentData(swarm.x, swarm.f);
+            iterInit = 2;
+        }
+
+    }
+
+    public static void runRandonAMForEachEnvironment() {
+
+        int algorithmSeed = SEED + RUN_ID;
+        Random rand = new Random(algorithmSeed);
+        RMPBI problem = createProblem();
+
+        Swarm swarm = new Swarm(POPULATION_SIZE, problem.dimension);
+
+        int currentIteration = 0;
+        int currentChange = 0;
+        int maxIterations = CHANGE_FREQUENCY / POPULATION_SIZE;
+
+        PresentEvaluator evaluator = new PresentEvaluator();
+        RandomeEvaluator rEvaluator = new RandomeEvaluator();
+
+        initializeSwarm(swarm, problem, evaluator, rand);
+        printPerformance(RUN_ID, currentChange, currentIteration, problem.trueEval(swarm.gx));
+        rEvaluator.saveEnvironmentData(swarm.x, swarm.f);
+
+        int iterInit = 1;
+        for (currentChange = 0; currentChange < problem.learningPeriod; currentChange++) {
+            for (int iter = iterInit; iter < maxIterations; iter++) {
+                //currentIteration++;
+                evolveSwarm(swarm, problem, evaluator, rand);
+                printPerformance(RUN_ID, currentChange, iter, problem.trueEval(swarm.gx));
+                rEvaluator.saveEnvironmentData(swarm.x, swarm.f);
+            }
+            rEvaluator.createNewEnvironment(problem);
+            problem.change();
+            updateSwarm(swarm, problem, evaluator, rand);
+            printPerformance(RUN_ID, currentChange, 0, problem.trueEval(swarm.gx));
+            reinitializeSwarm(swarm, problem, evaluator, rand);
+            printPerformance(RUN_ID, currentChange, 1, problem.trueEval(swarm.gx));
+            rEvaluator.saveEnvironmentData(swarm.x, swarm.f);
+            iterInit = 2;
+        }
+
+        for (currentChange = problem.learningPeriod; currentChange < MAX_CHANGES; currentChange++) {
+
+            for (int iter = iterInit; iter < maxIterations; iter++) {
+                //currentIteration++;
+                evolveSwarm(swarm, problem, rEvaluator, rand);
+                printPerformance(RUN_ID, currentChange, iter, problem.trueEval(swarm.gx));
+                rEvaluator.saveEnvironmentData(swarm.x, swarm.f);
+            }
+            rEvaluator.createNewEnvironment(problem);
+            problem.change();
+            updateSwarm(swarm, problem, rEvaluator, rand);
+            printPerformance(RUN_ID, currentChange, 0, problem.trueEval(swarm.gx));
+            reinitializeSwarm(swarm, problem, rEvaluator, rand);
+            printPerformance(RUN_ID, currentChange, 1, problem.trueEval(swarm.gx));
+            rEvaluator.saveEnvironmentData(swarm.x, swarm.f);
             iterInit = 2;
         }
 
@@ -448,6 +506,74 @@ public class Main {
 
             KMeans kMeans = KMeans.fit(this.currentEnvironmentDataBase.dataBaseX, this.K);
             RBF<double[]>[] rbfList = RBF.of(kMeans.centroids, new GaussianRadialBasis(), new EuclideanDistance());
+            RBFNetwork<double[]> rbfNetwork = RBFNetwork.fit(this.currentEnvironmentDataBase.dataBaseX, this.currentEnvironmentDataBase.dataBaseY, rbfList);
+            this.pastApproximationModels.addLast(rbfNetwork);
+            this.currentEnvironmentDataBase = new DataBaseEnvironment();
+            if (this.pastApproximationModels.size() > problem.learningPeriod) {
+                this.pastApproximationModels.removeFirst();
+            }
+        }
+
+
+        @Override
+        public double evaluate(RMPBI problem, double[] x) {
+
+            double[] pastY = evaluateInThePast(x);
+
+            double presentY = problem.eval(x);
+
+            double[] timeSeries = Utils.appendValueToVector(presentY, pastY);
+
+            double[] futureY = evaluateInTheFuture(timeSeries, problem);
+
+            return problem.assistedEval(presentY, futureY);
+        }
+
+        public double[] evaluateInThePast(double[] x) {
+
+            double[] result = new double[this.pastApproximationModels.size()];
+            for (int i = 0; i < this.pastApproximationModels.size(); i++) {
+                result[i] = this.pastApproximationModels.get(i).predict(x);
+            }
+            return result;
+        }
+
+        public double[] evaluateInTheFuture(double[] timeSeries, RMPBI problem) {
+
+            ArimaParams arp = new ArimaParams(AR_ORDER, 0, 0, 0, 0, 0, 0);
+
+            ForecastResult forecastResult = Arima.forecast_arima(timeSeries, problem.timeWindows - 1, arp);
+
+            return forecastResult.getForecast();
+        }
+
+
+        public void saveEnvironmentData(double[][] x, double[] y) {
+
+            this.currentEnvironmentDataBase.append(x, y);
+        }
+
+
+    }
+
+    static class RandomeEvaluator implements RobustnessEvaluator {
+        /*
+        Este evaluador construye cada regresor del pasado utilizando 20 soluciones aleatorias de las exploradas en el escenario actual
+         */
+        int AR_ORDER = 4;
+        int K = 20; // cantidad de soluciones aleatorias seleccionadas
+        LinkedList<RBFNetwork> pastApproximationModels = new LinkedList<>();
+        DataBaseEnvironment currentEnvironmentDataBase = new DataBaseEnvironment();
+
+        public void createNewEnvironment(RMPBI problem) {
+            double[][] rSolucion = new double[this.K][];
+            smile.math.Random random = new smile.math.Random(123);
+            for (int i = 0; i < this.K; i++) {
+                int r = (int) random.nextDouble(0, this.currentEnvironmentDataBase.dataBaseX.length);
+                rSolucion[i] = this.currentEnvironmentDataBase.dataBaseX[r];
+            }
+            // KMeans kMeans = KMeans.fit(this.currentEnvironmentDataBase.dataBaseX, this.K);
+            RBF<double[]>[] rbfList = RBF.of(rSolucion, new GaussianRadialBasis(), new EuclideanDistance());
             RBFNetwork<double[]> rbfNetwork = RBFNetwork.fit(this.currentEnvironmentDataBase.dataBaseX, this.currentEnvironmentDataBase.dataBaseY, rbfList);
             this.pastApproximationModels.addLast(rbfNetwork);
             this.currentEnvironmentDataBase = new DataBaseEnvironment();

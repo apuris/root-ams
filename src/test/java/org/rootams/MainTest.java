@@ -18,7 +18,7 @@ public class MainTest {
         Main.POPULATION_SIZE = 50;
         Main.OUTPUT_FILE = "test.out";
 
-        Main.main(null);
+       // Main.main(null);
 
     }
 
@@ -37,6 +37,20 @@ public class MainTest {
         // Main.main(null);
 
 
+    }
+
+    @Test
+    public void mainRandome() {
+        Main.RUN_ID = 5;
+        Main.SEED = 1;
+        Main.MAX_CHANGES = 50;
+        Main.CHANGE_FREQUENCY = 2500;
+        Main.CHANGE_TYPE = 1;
+        Main.FUTURE_HORIZON = 2;
+        Main.ALGORITHM_ID = 4;
+        Main.POPULATION_SIZE = 50;
+        Main.OUTPUT_FILE = "testRandome.out";
+        Main.main(null);
 
     }
 }
